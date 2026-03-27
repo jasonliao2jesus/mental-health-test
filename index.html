@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>兒童青少年心理健康篩檢</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; background-color: #f4f7f6; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { text-align: center; color: #2c3e50; }
+        .controls { display: flex; justify-content: space-between; margin-bottom: 20px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        select, button { padding: 10px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
+        button { background-color: #3498db; color: white; border: none; cursor: pointer; transition: background 0.3s; }
+        button:hover { background-color: #2980b9; }
+        .question-card { background: #fff; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .question-text { font-weight: bold; margin-bottom: 10px; }
+        .options label { margin-right: 15px; cursor: pointer; }
+        .result-section { margin-top: 20px; padding: 20px; background: #e8f8f5; border-left: 5px solid #1abc9c; border-radius: 5px; display: none; }
+        .result-section h2 { margin-top: 0; color: #16a085; }
+        .score-list { list-style-type: none; padding: 0; }
+        .score-list li { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #ccc; display: flex; justify-content: space-between;}
+        .score-list li:last-child { border-bottom: none; }
+        .highlight { font-weight: bold; color: #d35400; }
+    </style>
+</head>
+<body>
+
+    <h1>兒童青少年心理健康篩檢</h1>
+    
+    <div class="controls">
+        <select id="testSelector" onchange="loadTest()">
+            <option value="sdq_2_4">2-4歲 SDQ (長處和困難調查表)</option>
+            <option value="sdq_4_17">4-17歲 SDQ (長處和困難調查表)</option>
+            <option value="gad7">GAD-7 (廣泛性焦慮症量表)</option>
+            <option value="epds">愛丁堡產後憂鬱症評估量表</option>
+        </select>
+        <button onclick="exportCSV()">匯出為 CSV 檔</button>
+    </div>
+
+    <form id="quizForm" onchange="calculateScore()"></form>
+
+    <div id="resultSection" class="result-section">
+        <h2>評估結果</h2>
+        <div id="scoreDisplay"></div>
+        <p id="noteDisplay" style="font-size: 0.9em; color: #555; margin-top: 15px;"></p>
+    </div>
+
+    <script>
+        const sdqOptions = [
+            {text: "不真實", val: 0},
+            {text: "有點真實", val: 1},
+            {text: "完全真實", val: 2}
+        ];
+        // 第 7, 11, 14, 21, 25 題為反向計分
+        const sdqReverseOptions = [
+            {text: "不真實", val: 2},
+            {text: "有點真實", val: 1},
+            {text: "完全真實", val: 0}
+        ];
+
+        const tests = {
+            "sdq_2_4": {
+                name: "2-4歲 SDQ",
+                note: "註：困難總分由情緒、行為、過動及同儕四個子量表相加而成。親社會行為代表正向特質，不計入困難總分。",
+                questions: [
+                    "1. 能體諒到別人的感受", "2. 不安定、過分活躍、不能長久靜止", "3. 經常抱怨頭痛、肚子痛或噁心", "4. 很樂意與別的小孩分享東西",
+                    "5. 經常發脾氣或易怒", "6. 頗孤獨,比較多自己玩", "7. 一般來說比較順從,通常是成年人要求要做的都肯做", "8. 有很多擔憂,經常表現出憂慮",
+                    "9. 如果有人受傷、沮喪或是生病,都很樂意提供幫助", "10. 當坐著時,會持續不斷地擺弄手腳或扭動身子", "11. 至少有一個好朋友",
+                    "12. 經常與別的小孩打架或欺負他們", "13. 經常不高興、情緒低落或哭泣", "14. 一般來說,受別的小孩所喜歡", "15. 容易分心,不能全神貫注",
+                    "16. 在新的情況下,會緊張或愛黏人,容易失去信心", "17. 對年紀小的小孩和善", "18. 經常與成年人爭論", "19. 受別的小孩作弄或欺負",
+                    "20. 經常自願地幫助別人", "21. 可以在做事前停下來思考", "22. 對人可以充滿惡意", "23. 跟成年人相處比跟小孩相處融洽",
+                    "24. 對很多事物感到害怕,容易受驚嚇", "25. 做事情能做到底,注意力持久"
+                ].map((q, i) => ({
+                    text: q,
+                    options: [6, 10, 13, 20, 24].includes(i) ? sdqReverseOptions : sdqOptions 
+                })),
+                calc: (answers) => calcSDQ(answers, true)
+            },
+            "sdq_4_17": {
+                name: "4-17歲 SDQ",
+                note: "註：困難總分由情緒、行為、過動及同儕四個子量表相加而成。親社會行為代表正向特質，不計入困難總分。",
+                questions: [
+                    "1. 能體諒到別人的感受", "2. 不安定、過分活躍、不能長久靜止", "3. 經常抱怨頭痛、肚子痛或噁心", "4. 很樂意與別的小孩分享東西",
+                    "5. 經常發脾氣或易怒", "6. 頗孤獨,比較多自己玩", "7. 一般來說比較順從,通常是成年人要求要做的都肯做", "8. 有很多擔憂,經常表現出憂慮",
+                    "9. 如果有人受傷、沮喪或是生病,都很樂意提供幫助", "10. 當坐著時,會持續不斷地擺弄手腳或扭動身子", "11. 至少有一個好朋友",
+                    "12. 經常與別的小孩吵架或欺負他們", "13. 經常不高興、情緒低落或哭泣", "14. 一般來說,受別的小孩所喜歡", "15. 容易分心,不能全神貫注",
+                    "16. 在新的情況下,會緊張或愛黏人,容易失去信心", "17. 對年紀小的小孩和善", "18. 經常撒謊或欺騙", "19. 受別的小孩作弄或欺負",
+                    "20. 經常自願地幫助別人", "21. 做事前會思考", "22. 從家裡、學校或其他地方偷東西", "23. 跟成年人相處比跟小孩相處融洽",
+                    "24. 對很多事物感到害怕,容易受驚嚇", "25. 做事情能做到底,注意力持久"
+                ].map((q, i) => ({
+                    text: q,
+                    options: [6, 10, 13, 20, 24].includes(i) ? sdqReverseOptions : sdqOptions
+                })),
+                calc: (answers) => calcSDQ(answers, false)
+            },
+            "gad7": {
+                name: "GAD-7 廣泛性焦慮症",
+                note: "此篩檢並不能替代臨床評估，無法提供實際診斷。",
+                questions: [
+                    "1. 感到緊張、不安或煩躁", "2. 無法停止或者控制憂慮", "3. 過分憂慮不同的事情", "4. 難以放鬆",
+                    "5. 心緒不寧以至坐立不安", "6. 容易心煩或易怒", "7. 感到害怕,就想要發生可怕的事情"
+                ].map(q => ({
+                    text: q,
+                    options: [
+                        {text: "完全沒有", val: 0}, {text: "幾天", val: 1}, 
+                        {text: "一半以上天數", val: 2}, {text: "幾乎每天", val: 3}
+                    ]
+                })),
+                calc: (answers) => {
+                    let total = Object.values(answers).reduce((a, b) => a + b, 0);
+                    let severity = total <= 4 ? "沒有或輕微焦慮 (0-4分)" :
+                                   total <= 9 ? "輕微焦慮 (5-9分)" :
+                                   total <= 14 ? "中度焦慮 (10-14分)" : "重度焦慮 (15-21分)";
+                    return {
+                        html: `<ul class="score-list"><li><span><strong>總分：</strong></span><span>${total}</span></li><li><span><strong>嚴重程度：</strong></span><span class="highlight">${severity}</span></li></ul>`,
+                        csv: [{label: "總分", val: total}, {label: "嚴重程度", val: severity}]
+                    };
+                }
+            },
+            "epds": {
+                name: "愛丁堡產後憂鬱症評估",
+                note: "總分9分以下多為正常；10-12分有可能為憂鬱症；大於13分極可能已受憂鬱症所苦。",
+                questions: [
+                    { text: "1. 我能看到事物有趣的一面,並笑得開心", options: [{text:"同以前一樣", val:0}, {text:"沒有以前那麼多", val:1}, {text:"肯定比以前少", val:2}, {text:"完全不能", val:3}] },
+                    { text: "2. 我欣然期待未來的一切", options: [{text:"同以前一樣", val:0}, {text:"沒有以前那麼多", val:1}, {text:"肯定比以前少", val:2}, {text:"完全不能", val:3}] },
+                    { text: "3. 當事情出錯時,我會不必要地責備自己", options: [{text:"大部分時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"不經常這樣", val:1}, {text:"沒有這樣", val:0}] },
+                    { text: "4. 我無緣無故感到焦慮和擔心", options: [{text:"一點也沒有", val:0}, {text:"極少有", val:1}, {text:"有時候這樣", val:2}, {text:"經常這樣", val:3}] },
+                    { text: "5. 我無緣無故感到害怕和驚慌", options: [{text:"相當多時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"不經常這樣", val:1}, {text:"一點也沒有", val:0}] },
+                    { text: "6. 很多事情衝著我而來,使我透不過氣", options: [{text:"大多數時候您都不能應付", val:3}, {text:"有時候您不能像平時那樣應付得好", val:2}, {text:"大部分時候您都能像平時那樣應付得好", val:1}, {text:"您一直都能應付得好", val:0}] },
+                    { text: "7. 我很不開心,以致失眠", options: [{text:"大部分時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"不經常這樣", val:1}, {text:"一點也沒有", val:0}] },
+                    { text: "8. 我感到難過和悲傷", options: [{text:"大部分時候這樣", val:3}, {text:"相當時候這樣", val:2}, {text:"不經常這樣", val:1}, {text:"一點也沒有", val:0}] },
+                    { text: "9. 我不開心到哭", options: [{text:"大部分時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"只是偶爾這樣", val:1}, {text:"沒有這樣", val:0}] },
+                    { text: "10. 我想過要傷害自己", options: [{text:"相當多時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"很少這樣", val:1}, {text:"沒有這樣", val:0}] }
+                ],
+                calc: (answers) => {
+                    let total = Object.values(answers).reduce((a, b) => a + b, 0);
+                    let severity = total <= 9 ? "正常 (0-9分)" :
+                                   total <= 12 ? "有可能為憂鬱症 (10-12分)" : "極可能已受憂鬱症所苦 (13-30分)";
+                    return {
+                        html: `<ul class="score-list"><li><span><strong>總分：</strong></span><span>${total}</span></li><li><span><strong>嚴重程度：</strong></span><span class="highlight">${severity}</span></li></ul>`,
+                        csv: [{label: "總分", val: total}, {label: "嚴重程度", val: severity}]
+                    };
+                }
+            }
+        };
+
+        function calcSDQ(answers, is2to4) {
+            // 索引值為題號減 1
+            const scales = {
+                "情緒困難 (Emotional difficulties)": [2, 7, 12, 15, 23],
+                "行為困難 (Conduct difficulties)": [4, 6, 11, 17, 21],
+                "過動/注意力不集中 (Hyperactivity)": [1, 9, 14, 20, 24],
+                "同儕問題 (Peer difficulties)": [5, 10, 13, 18, 22],
+                "親社會行為 (Prosocial)": [0, 3, 8, 16, 19]
+            };
+
+            let scores = {};
+            let totalDifficulties = 0;
+
+            for (let [scaleName, indices] of Object.entries(scales)) {
+                let sum = 0;
+                indices.forEach(idx => {
+                    if (answers[idx] !== undefined) sum += answers[idx];
+                });
+                scores[scaleName] = sum;
+                if (scaleName !== "親社會行為 (Prosocial)") {
+                    totalDifficulties += sum;
+                }
+            }
+
+            let severity = "";
+            if (is2to4) {
+                severity = totalDifficulties <= 12 ? "接近平均 (0-12分)" : totalDifficulties <= 15 ? "稍微偏高 (13-15分)" : totalDifficulties <= 18 ? "高 (16-18分)" : "非常高 (19-40分)";
+            } else {
+                severity = totalDifficulties <= 13 ? "接近平均 (0-13分)" : totalDifficulties <= 16 ? "稍微偏高 (14-16分)" : totalDifficulties <= 19 ? "高 (17-19分)" : "非常高 (20-40分)";
+            }
+
+            let html = `<ul class="score-list">`;
+            html += `<li><span><strong>困難總分 (Total Difficulties)：</strong></span><span>${totalDifficulties}</span></li>`;
+            html += `<li><span><strong>嚴重程度：</strong></span><span class="highlight">${severity}</span></li>`;
+            for (let [scaleName, score] of Object.entries(scores)) {
+                html += `<li><span>${scaleName}：</span><span>${score}</span></li>`;
+            }
+            html += `</ul>`;
+
+            let csv = [
+                {label: "困難總分 (Total Difficulties)", val: totalDifficulties},
+                {label: "嚴重程度", val: severity}
+            ];
+            for (let [scaleName, score] of Object.entries(scores)) {
+                csv.push({label: scaleName, val: score});
+            }
+
+            return { html, csv };
+        }
+
+        let currentTestKey = "sdq_2_4";
+
+        function loadTest() {
+            currentTestKey = document.getElementById("testSelector").value;
+            const test = tests[currentTestKey];
+            const form = document.getElementById("quizForm");
+            
+            form.innerHTML = test.questions.map((q, i) => `
+                <div class="question-card">
+                    <div class="question-text">${q.text}</div>
+                    <div class="options">
+                        ${q.options.map(opt => `
+                            <label><input type="radio" name="q${i}" value="${opt.val}"> ${opt.text}</label>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById("noteDisplay").innerText = test.note || "";
+            document.getElementById("resultSection").style.display = "none";
+        }
+
+        function calculateScore() {
+            const test = tests[currentTestKey];
+            const formData = new FormData(document.getElementById("quizForm"));
+            let answers = {};
+            let answeredCount = 0;
+
+            for (let [key, val] of formData.entries()) {
+                answers[key.replace('q', '')] = parseInt(val);
+                answeredCount++;
+            }
+
+            if (answeredCount === test.questions.length) {
+                const result = test.calc(answers);
+                document.getElementById("scoreDisplay").innerHTML = result.html;
+                document.getElementById("resultSection").style.display = "block";
+            } else {
+                document.getElementById("resultSection").style.display = "none";
+            }
+        }
+
+        function exportCSV() {
+            const test = tests[currentTestKey];
+            const formData = new FormData(document.getElementById("quizForm"));
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
+            csvContent += "題目,選擇,分數\n";
+
+            let answers = {};
+            let answeredCount = 0;
+            for (let [key, val] of formData.entries()) {
+                let idx = parseInt(key.replace('q', ''));
+                answers[idx] = parseInt(val);
+                let selectedOptionText = test.questions[idx].options.find(o => o.val == val).text;
+                csvContent += `"${test.questions[idx].text}","${selectedOptionText}",${val}\n`;
+                answeredCount++;
+            }
+
+            if(answeredCount === test.questions.length){
+                const result = test.calc(answers);
+                csvContent += `\n"---評估結果---","",""\n`;
+                result.csv.forEach(item => {
+                    csvContent += `"${item.label}","","${item.val}"\n`;
+                });
+            } else {
+                alert("請先完成所有題目再匯出！");
+                return;
+            }
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `${test.name}_評估結果.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 初始化載入
+        window.onload = loadTest;
+    </script>
+</body>
+</html>

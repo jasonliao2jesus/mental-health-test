@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>心理健康篩檢</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; background-color: #f4f7f6; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { text-align: center; color: #2c3e50; }
+        .controls { display: flex; justify-content: space-between; margin-bottom: 20px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        select, button { padding: 10px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
+        button { background-color: #3498db; color: white; border: none; cursor: pointer; transition: background 0.3s; }
+        button:hover { background-color: #2980b9; }
+        .question-card { background: #fff; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .question-text { font-weight: bold; margin-bottom: 10px; }
+        .options label { margin-right: 15px; cursor: pointer; }
+        .result-section { margin-top: 20px; padding: 20px; background: #e8f8f5; border-left: 5px solid #1abc9c; border-radius: 5px; display: none; }
+        .result-section h2 { margin-top: 0; color: #16a085; }
+        .score-list { list-style-type: none; padding: 0; }
+        .score-list li { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed #ccc; display: flex; justify-content: space-between;}
+        .score-list li:last-child { border-bottom: none; }
+        .highlight { font-weight: bold; color: #d35400; }
+    </style>
+</head>
+<body>
+
+    <h1>心理健康篩檢</h1>
+    
+    <div class="controls">
+        <select id="testSelector" onchange="loadTest()">
+            <!-- 將 PSC-17 移至第一項，使其成為預設選項 -->
+            <option value="psc17">PSC-17 兒童青少年症狀檢核表 (中文版)</option>
+            <option value="gad7">GAD-7 (廣泛性焦慮症量表)</option>
+            <option value="epds">愛丁堡產後憂鬱症評估量表</option>
+        </select>
+        <button onclick="exportCSV()">匯出為 CSV 檔</button>
+    </div>
+
+    <form id="quizForm" onchange="calculateScore()"></form>
+
+    <div id="resultSection" class="result-section">
+        <h2>評估結果</h2>
+        <div id="scoreDisplay"></div>
+        <p id="noteDisplay" style="font-size: 0.9em; color: #555; margin-top: 15px;"></p>
+    </div>
+
+    <script>
+        const tests = {
+            "gad7": {
+                name: "GAD-7 廣泛性焦慮症",
+                note: "此篩檢並不能替代臨床評估，無法提供實際診斷。",
+                questions: [
+                    "1. 感到緊張、不安或煩躁", "2. 無法停止或者控制憂慮", "3. 過分憂慮不同的事情", "4. 難以放鬆",
+                    "5. 心緒不寧以至坐立不安", "6. 容易心煩或易怒", "7. 感到害怕,就好像要發生可怕的事情"
+                ].map(q => ({
+                    text: q,
+                    options: [
+                        {text: "完全沒有", val: 0}, {text: "幾天", val: 1}, 
+                        {text: "一半以上天數", val: 2}, {text: "幾乎每天", val: 3}
+                    ]
+                })),
+                calc: (answers) => {
+                    let total = Object.values(answers).reduce((a, b) => a + b, 0);
+                    let severity = total <= 4 ? "沒有或輕微焦慮 (0-4分)" :
+                                   total <= 9 ? "輕微焦慮 (5-9分)" :
+                                   total <= 14 ? "中度焦慮 (10-14分)" : "重度焦慮 (15-21分)";
+                    return {
+                        html: `<ul class="score-list"><li><span><strong>總分：</strong></span><span>${total}</span></li><li><span><strong>嚴重程度：</strong></span><span class="highlight">${severity}</span></li></ul>`,
+                        csv: [{label: "總分", val: total}, {label: "嚴重程度", val: severity}]
+                    };
+                }
+            },
+            "epds": {
+                name: "愛丁堡產後憂鬱症評估",
+                note: "總分9分以下多為正常；10-12分有可能為憂鬱症；大於13分極可能已受憂鬱症所苦。",
+                questions: [
+                    { text: "1. 我能看到事物有趣的一面,並笑得開心", options: [{text:"同以前一樣", val:0}, {text:"沒有以前那麼多", val:1}, {text:"肯定比以前少", val:2}, {text:"完全不能", val:3}] },
+                    { text: "2. 我欣然期待未來的一切", options: [{text:"同以前一樣", val:0}, {text:"沒有以前那麼多", val:1}, {text:"肯定比以前少", val:2}, {text:"完全不能", val:3}] },
+                    { text: "3. 當事情出錯時,我會不必要地責備自己", options: [{text:"大部分時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"不經常這樣", val:1}, {text:"沒有這樣", val:0}] },
+                    { text: "4. 我無緣無故感到焦慮和擔心", options: [{text:"一點也沒有", val:0}, {text:"極少有", val:1}, {text:"有時候這樣", val:2}, {text:"經常這樣", val:3}] },
+                    { text: "5. 我無緣無故感到害怕和驚慌", options: [{text:"相當多時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"不經常這樣", val:1}, {text:"一點也沒有", val:0}] },
+                    { text: "6. 很多事情衝著我而來,使我透不過氣", options: [{text:"大多數時候您都不能應付", val:3}, {text:"有時候您不能像平時那樣應付得好", val:2}, {text:"大部分時候您都能像平時那樣應付得好", val:1}, {text:"您一直都能應付得好", val:0}] },
+                    { text: "7. 我很不開心,以致失眠", options: [{text:"大部分時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"不經常這樣", val:1}, {text:"一點也沒有", val:0}] },
+                    { text: "8. 我感到難過和悲傷", options: [{text:"大部分時候這樣", val:3}, {text:"相當時候這樣", val:2}, {text:"不經常這樣", val:1}, {text:"一點也沒有", val:0}] },
+                    { text: "9. 我不開心到哭", options: [{text:"大部分時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"只是偶爾這樣", val:1}, {text:"沒有這樣", val:0}] },
+                    { text: "10. 我想過要傷害自己", options: [{text:"相當多時候這樣", val:3}, {text:"有時候這樣", val:2}, {text:"很少這樣", val:1}, {text:"沒有這樣", val:0}] }
+                ],
+                calc: (answers) => {
+                    let total = Object.values(answers).reduce((a, b) => a + b, 0);
+                    let severity = total <= 9 ? "正常 (0-9分)" :
+                                   total <= 12 ? "有可能為憂鬱症 (10-12分)" : "極可能已受憂鬱症所苦 (13-30分)";
+                    return {
+                        html: `<ul class="score-list"><li><span><strong>總分：</strong></span><span>${total}</span></li><li><span><strong>嚴重程度：</strong></span><span class="highlight">${severity}</span></li></ul>`,
+                        csv: [{label: "總分", val: total}, {label: "嚴重程度", val: severity}]
+                    };
+                }
+            },
+            "psc17": {
+                name: "PSC-17 兒童青少年症狀檢核表 (中文版)",
+                note: "分數達切截點代表需要進一步的評估。總分切截點為 15 分，內化與外化問題切截點依原廠標準設定。",
+                questions: [
+                    "1. 煩燥的,不能坐定 (Fidgety, unable to sit still)",
+                    "2. 感覺悲哀,不快樂 (Feels sad, unhappy)",
+                    "3. 太多白日夢(幻想) (Daydreams too much)",
+                    "4. 拒絕分享 (Refuses to share)",
+                    "5. 不明白他人的感覺 (Does not understand other people's feelings)",
+                    "6. 感覺無希望 (Feels hopeless)",
+                    "7. 難於集中精神/注意力 (Has trouble concentrating)",
+                    "8. 和其他孩子打架 (Fights with other children)",
+                    "9. 看不起自己 (Is down on him or herself)",
+                    "10. 因自己遇到的困擾而責備他人 (Blames others for his or her troubles)",
+                    "11. 似乎興致樂趣不高 (Seems to be having less fun)",
+                    "12. 不遵守規則 (Does not listen to rules)",
+                    "13. 太愛動/不停活動 (Acts as if driven by a motor)",
+                    "14. 取笑他人 (Teases others)",
+                    "15. 太多憂慮 (Worries a lot)",
+                    "16. 拿取不屬於自己的東西 (Takes things that do not belong to him or her)",
+                    "17. 容易分心 (Distracted easily)"
+                ].map(q => ({
+                    text: q,
+                    options: [
+                        {text: "沒有", val: 0}, 
+                        {text: "有時", val: 1}, 
+                        {text: "時常", val: 2}
+                    ]
+                })),
+                calc: (answers) => {
+                    // 將指定的題號(從0開始的索引)相加
+                    const idxToScore = (idxList) => idxList.reduce((acc, curr) => acc + (answers[curr] !== undefined ? answers[curr] : 0), 0);
+                    
+                    // 子量表計算 (對應原廠標準題號，程式碼索引需減1)
+                    const attentionScore = idxToScore([0, 2, 6, 12, 16]);
+                    const internalizingScore = idxToScore([1, 5, 8, 10, 14]);
+                    const externalizingScore = idxToScore([3, 4, 7, 9, 11, 13, 15]);
+                    
+                    const totalScore = attentionScore + internalizingScore + externalizingScore;
+
+                    // 判斷是否超過切截點，給予相對應的樣式與文字
+                    const getStatusHtml = (score, cutoff) => score >= cutoff 
+                        ? `<span class="highlight">需要臨床關注 (${score}分，切截點 >= ${cutoff})</span>` 
+                        : `<span style="color: #27ae60;">正常範圍 (${score}分)</span>`;
+                        
+                    const getStatusCSV = (score, cutoff) => score >= cutoff ? `需臨床關注 (>= ${cutoff})` : "正常範圍";
+
+                    let html = `<ul class="score-list">`;
+                    html += `<li><span><strong>總分 (Total Score)：</strong></span><span>${getStatusHtml(totalScore, 15)}</span></li>`;
+                    html += `<li><span>內化問題 (Internalizing)：</span><span>${getStatusHtml(internalizingScore, 5)}</span></li>`;
+                    html += `<li><span>注意力問題 (Attention)：</span><span>${getStatusHtml(attentionScore, 7)}</span></li>`;
+                    html += `<li><span>外化問題 (Externalizing)：</span><span>${getStatusHtml(externalizingScore, 7)}</span></li>`;
+                    html += `</ul>`;
+
+                    let csv = [
+                        {label: "總分 (Total)", val: `${totalScore} (${getStatusCSV(totalScore, 15)})`},
+                        {label: "內化問題 (Internalizing)", val: `${internalizingScore} (${getStatusCSV(internalizingScore, 5)})`},
+                        {label: "注意力問題 (Attention)", val: `${attentionScore} (${getStatusCSV(attentionScore, 7)})`},
+                        {label: "外化問題 (Externalizing)", val: `${externalizingScore} (${getStatusCSV(externalizingScore, 7)})`}
+                    ];
+
+                    return { html, csv };
+                }
+            }
+        };
+
+        // 將初始載入的變數改為 psc17
+        let currentTestKey = "psc17";
+
+        function loadTest() {
+            currentTestKey = document.getElementById("testSelector").value;
+            const test = tests[currentTestKey];
+            const form = document.getElementById("quizForm");
+            
+            form.innerHTML = test.questions.map((q, i) => `
+                <div class="question-card">
+                    <div class="question-text">${q.text}</div>
+                    <div class="options">
+                        ${q.options.map(opt => `
+                            <label><input type="radio" name="q${i}" value="${opt.val}"> ${opt.text}</label>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById("noteDisplay").innerText = test.note || "";
+            document.getElementById("resultSection").style.display = "none";
+        }
+
+        function calculateScore() {
+            const test = tests[currentTestKey];
+            const formData = new FormData(document.getElementById("quizForm"));
+            let answers = {};
+            let answeredCount = 0;
+
+            for (let [key, val] of formData.entries()) {
+                answers[key.replace('q', '')] = parseInt(val);
+                answeredCount++;
+            }
+
+            if (answeredCount === test.questions.length) {
+                const result = test.calc(answers);
+                document.getElementById("scoreDisplay").innerHTML = result.html;
+                document.getElementById("resultSection").style.display = "block";
+            } else {
+                document.getElementById("resultSection").style.display = "none";
+            }
+        }
+
+        function exportCSV() {
+            const test = tests[currentTestKey];
+            const formData = new FormData(document.getElementById("quizForm"));
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
+            csvContent += "題目,選擇,分數\n";
+
+            let answers = {};
+            let answeredCount = 0;
+            for (let [key, val] of formData.entries()) {
+                let idx = parseInt(key.replace('q', ''));
+                answers[idx] = parseInt(val);
+                let selectedOptionText = test.questions[idx].options.find(o => o.val == val).text;
+                csvContent += `"${test.questions[idx].text}","${selectedOptionText}",${val}\n`;
+                answeredCount++;
+            }
+
+            if(answeredCount === test.questions.length){
+                const result = test.calc(answers);
+                csvContent += `\n"---評估結果---","",""\n`;
+                result.csv.forEach(item => {
+                    csvContent += `"${item.label}","","${item.val}"\n`;
+                });
+            } else {
+                alert("請先完成所有題目再匯出！");
+                return;
+            }
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `${test.name}_評估結果.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 初始化載入
+        window.onload = loadTest;
+    </script>
+</body>
+</html>
